@@ -6,6 +6,7 @@ contract EarlyWakeUp {
 
     uint256 public score;
     uint256 public target;
+    uint256 public targetTime;
     uint256 public lastCheckIn;
 
     uint256 public constant UTC8_OFFSET = 8 hours;
@@ -20,40 +21,31 @@ contract EarlyWakeUp {
     uint256 private constant DAY = 1 days;
     uint256 private constant RESET_THRESHOLD = 80;
 
-    event TargetSet(uint256 target);
+    event TargetSet(uint256 target, uint256 targetTime);
     event Donated(address indexed donor, uint256 amount);
     event CheckedIn(uint256 indexed day, uint256 points, uint256 score);
     event Withdrawn(address indexed owner, uint256 amount, uint256 score);
 
     error NotOwner();
     error TargetNotSet();
+    error TargetTimeNotReached();
     error AlreadyCheckedInToday();
     error NotInCheckInWindow();
     error NothingToWithdraw();
     error TransferFailed();
     error InvalidTarget();
-    error CycleInProgress();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner();
         _;
     }
 
-    constructor(uint256 _target) {
+    constructor(uint256 _target, uint256 _targetTime) {
         owner = msg.sender;
         if (_target == 0) revert InvalidTarget();
         target = _target;
-        emit TargetSet(_target);
-    }
-
-    function setTarget(uint256 _target) external onlyOwner {
-        if (_target == 0) revert InvalidTarget();
-        // 只有当前 score 为 0 时才能改目标，防止中途篡改目标
-        if (score > 0) revert CycleInProgress();
-
-        target = _target;
-        lastCheckIn = 0;
-        emit TargetSet(_target);
+        targetTime = _targetTime;
+        emit TargetSet(_target, _targetTime);
     }
 
     function donate() external payable {
@@ -92,17 +84,34 @@ contract EarlyWakeUp {
     }
 
     function withdraw() external onlyOwner {
+        if (block.timestamp < targetTime) revert TargetTimeNotReached();
         if (target == 0) revert TargetNotSet();
         if (score == 0) revert NothingToWithdraw();
 
-        uint256 effectiveScore = score > target ? target : score;
+        // 1. 先用当前时间重新计算漏签惩罚，防止靠“停止打卡”锁定最高分
+        uint256 todayDay = _toDay(block.timestamp);
+        uint256 lastDay = _toDay(lastCheckIn);
+        uint256 missed = todayDay > lastDay ? todayDay - lastDay - 1 : 0;
+        uint256 currentScore = score;
+
+        if (missed > 0) {
+            currentScore = _applyPenalty(score, missed);
+            // 漏签惩罚后 score < 80，说明当前状态已不满足提取条件，直接 revert
+            // 注意：这里不写入 score=0，因为 revert 会回滚所有状态变更
+            if (currentScore < RESET_THRESHOLD) revert NothingToWithdraw();
+        }
+
+        // 2. 计算可提取金额
+        uint256 effectiveScore = currentScore > target ? target : currentScore;
         uint256 amount = address(this).balance * effectiveScore / target;
         if (amount == 0) revert NothingToWithdraw();
+
+        // 3. CEI：先改状态，再做外部转账，避免重入
+        score = 0;
 
         (bool success, ) = payable(owner).call{value: amount}("");
         if (!success) revert TransferFailed();
 
-        score = 0;
         emit Withdrawn(owner, amount, effectiveScore);
     }
 
@@ -164,8 +173,13 @@ contract EarlyWakeUp {
     }
 
     function claimableReward() external view returns (uint256) {
-        if (target == 0 || score == 0) return 0;
-        uint256 effectiveScore = score > target ? target : score;
+        if (block.timestamp < targetTime || target == 0 || score == 0) return 0;
+        uint256 todayDay = _toDay(block.timestamp);
+        uint256 lastDay = _toDay(lastCheckIn);
+        uint256 missed = todayDay > lastDay ? todayDay - lastDay - 1 : 0;
+        uint256 currentScore = missed > 0 ? _applyPenalty(score, missed) : score;
+        if (currentScore < RESET_THRESHOLD) return 0;
+        uint256 effectiveScore = currentScore > target ? target : currentScore;
         return address(this).balance * effectiveScore / target;
     }
 }
