@@ -12,6 +12,8 @@ contract EarlyWakeUpScript is Script {
     function run() public {
         uint256 target = vm.envUint("TARGET");
         uint256 cooldown = vm.envUint("COOLDOWN");
+        // 私钥/账户通过 CLI 传入（--private-key 或 --account），
+        // 不写在脚本里，避免把敏感信息提交到 git。
         vm.startBroadcast();
         game = new EarlyWakeUp(target, cooldown);
         vm.stopBroadcast();
