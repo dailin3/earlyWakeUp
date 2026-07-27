@@ -75,14 +75,17 @@ contract EarlyWakeUp {
             uint256 penalized = _applyPenalty(score, missed);
 
             if (penalized < RESET_THRESHOLD) {
-                // 漏签导致重置：score 归零，但不刷新冷却
+                // 漏签导致 score 跌破阈值，触发重置。
+                // 注意：这里只把 score 归零；如果本次签到还要继续（同一笔交易），
+                // 下面的 score==0 分支会把它视为新周期并刷新 cooldownStart。
                 score = 0;
             } else {
                 score = penalized + todayPoints;
             }
         }
 
-        // 从 score == 0 开始签到，视为新周期开始，刷新冷却起点
+        // 从 score == 0 开始签到（包括首次签到、漏签重置、或提款后清零），
+        // 视为新周期开始，刷新冷却起点。
         if (score == 0) {
             score = todayPoints;
             cooldownStart = block.timestamp;
@@ -114,9 +117,10 @@ contract EarlyWakeUp {
         uint256 amount = address(this).balance * effectiveScore / target;
         if (amount == 0) revert NothingToWithdraw();
 
-        // CEI：先改状态，再做外部转账
+        // CEI：先改状态，再做外部转账。
+        // 提款后 score 归零，但 cooldownStart 保持原值；下一周期由下一次 checkIn 重新设置，
+        // 这样就不会在提款后立即开启一个空冷却期。
         score = 0;
-        // 注意：提款成功不刷新 cooldownStart，下一周期从 score=0 的第一次签到开始
 
         (bool success, ) = payable(owner).call{value: amount}("");
         if (!success) revert TransferFailed();
