@@ -11,9 +11,9 @@ contract EarlyWakeUpScript is Script {
 
     function run() public {
         uint256 target = vm.envUint("TARGET");
-        uint256 targetTime = vm.envUint("TARGET_TIME");
+        uint256 cooldown = vm.envUint("COOLDOWN");
         vm.startBroadcast();
-        game = new EarlyWakeUp(target, targetTime);
+        game = new EarlyWakeUp(target, cooldown);
         vm.stopBroadcast();
     }
 }
