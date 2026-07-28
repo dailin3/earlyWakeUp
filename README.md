@@ -182,3 +182,70 @@ forge script script/EarlyWakeUp.s.sol --rpc-url <RPC_URL> --broadcast --private-
 6. 提款成功后 score 归零，但冷却起点不变；下一周期从再次签到开始重新计时。
 7. 提取奖励使用 `.call` 转账，owner 地址不能是拒绝 ETH 的合约。
 8. 没有 ownership 转移机制，请妥善保管私钥。
+
+---
+
+## 前端网站
+
+项目包含一个 React + Vite + wagmi + RainbowKit 前端，用于在浏览器里直接签到、捐赠、提取和查看历史。
+
+### 目录
+
+```
+frontend/
+├── src/
+│   ├── App.tsx        # 主界面
+│   ├── wagmi.ts       # 钱包和链配置
+│   ├── constants.ts   # 合约地址、ABI、工具函数
+│   └── components/
+│       └── Heatmap.tsx # 签到热力图
+├── index.html
+├── vite.config.ts
+└── package.json
+```
+
+### 本地运行
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+打开 http://localhost:5173
+
+### 配置 WalletConnect Project ID
+
+RainbowKit 需要 WalletConnect 项目 ID 才能提供移动端钱包扫码连接。
+
+1. 访问 https://cloud.walletconnect.com/ 注册并创建项目
+2. 复制 Project ID
+3. 创建 `frontend/.env`：
+
+```bash
+VITE_WALLETCONNECT_PROJECT_ID=你的_project_id
+```
+
+如果不配置，网站仍然可以运行，但 WalletConnect 相关的连接方式会失败。
+
+### 部署到 Vercel
+
+1. 把代码 push 到 GitHub
+2. 在 Vercel 导入项目
+3. 设置 Root Directory 为 `frontend`
+4. 添加环境变量 `VITE_WALLETCONNECT_PROJECT_ID`
+5. 点击 Deploy
+
+Vercel 会自动识别 Vite 配置，构建命令为 `npm run build`，输出目录为 `dist`。
+
+### 前端功能
+
+- 连接钱包（MetaMask / Rabby / WalletConnect 等）
+- 查看当前 score、target、奖池余额、可提取金额
+- 进度条和冷却倒计时
+- 当前 UTC+8 签到窗口提示
+- 一键 Check In（仅 owner 可用）
+- 一键 Withdraw（仅 owner 可用）
+- 输入 ETH 金额一键 Donate（任何人可用）
+- 最近 90 天签到热力图
+- 历史事件列表（CheckedIn / Donated / Withdrawn）
