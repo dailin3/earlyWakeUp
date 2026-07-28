@@ -63,7 +63,7 @@ contract EarlyWakeUpTest is Test {
 
     function test_ReceiveDonation() public {
         hoax(donor, 1 ether);
-        (bool success, ) = address(game).call{value: 0.3 ether}("");
+        (bool success,) = address(game).call{value: 0.3 ether}("");
         assertTrue(success);
         assertEq(address(game).balance, 0.3 ether);
     }

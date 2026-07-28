@@ -6,8 +6,8 @@ contract EarlyWakeUp {
 
     uint256 public score;
     uint256 public target;
-    uint256 public cooldown;        // 每个周期需要等待的秒数
-    uint256 public cooldownStart;   // 当前周期第一次签到时间，0 表示尚未开始周期
+    uint256 public cooldown; // 每个周期需要等待的秒数
+    uint256 public cooldownStart; // 当前周期第一次签到时间，0 表示尚未开始周期
     uint256 public lastCheckIn;
 
     uint256 public constant UTC8_OFFSET = 8 hours;
@@ -122,7 +122,7 @@ contract EarlyWakeUp {
         // 这样就不会在提款后立即开启一个空冷却期。
         score = 0;
 
-        (bool success, ) = payable(owner).call{value: amount}("");
+        (bool success,) = payable(owner).call{value: amount}("");
         if (!success) revert TransferFailed();
 
         emit Withdrawn(owner, amount, effectiveScore);
