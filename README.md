@@ -249,3 +249,77 @@ Vercel 会自动识别 Vite 配置，构建命令为 `npm run build`，输出目
 - 输入 ETH 金额一键 Donate（任何人可用）
 - 最近 90 天签到热力图
 - 历史事件列表（CheckedIn / Donated / Withdrawn）
+
+### 新增：Supabase 登录与感谢名单
+
+2026-07-29 更新：前端增加了 Supabase 登录和捐赠感谢名单功能。
+
+- **不强制登录**：任何人都可以直接 donate ETH 到合约
+- **捐赠后留名**：donate 交易发出后，会弹窗询问是否愿意登录留名
+  - 匿名捐赠：可填写昵称
+  - 登录留名：跳转到 `login.dailin.tech` 统一登录，并自动显示 OAuth 用户名或邮箱
+  - 完全匿名：不留任何信息
+- **捐赠后留言**：可以留一句话给 owner，显示在感谢名单里
+- **感谢名单**：页面底部展示最近 50 条捐赠记录，包括昵称、钱包地址、金额、留言
+
+### 需要的 Supabase 配置
+
+1. 在 Supabase Dashboard → SQL Editor 执行：
+
+```sql
+create table if not exists public.donations (
+  id bigint generated always as identity primary key,
+  created_at timestamp with time zone default now(),
+  chain text not null default 'arbitrum',
+  contract_address text not null,
+  donor_wallet text not null,
+  donor_user_id uuid references auth.users(id),
+  donor_email text,
+  donor_name text,
+  amount_eth numeric not null,
+  tx_hash text not null unique,
+  message text,
+  is_anonymous boolean not null default true,
+  confirmed boolean not null default true
+);
+
+alter table public.donations enable row level security;
+
+drop policy if exists "Allow public read" on public.donations;
+create policy "Allow public read" on public.donations
+  for select using (true);
+
+drop policy if exists "Allow anonymous inserts" on public.donations;
+create policy "Allow anonymous inserts" on public.donations
+  for insert with check (true);
+
+drop policy if exists "Allow users to update own records" on public.donations;
+create policy "Allow users to update own records" on public.donations
+  for update using (auth.uid() = donor_user_id);
+```
+
+2. 登录由 `login.dailin.tech` 统一处理。两个应用必须使用同一个 Supabase 项目，并在生产环境通过 `.dailin.tech` Cookie 共享会话。
+
+3. 创建 `frontend/.env`：
+
+```env
+VITE_WALLETCONNECT_PROJECT_ID=YOUR_PROJECT_ID
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-key
+```
+
+### 部署
+
+方式一：Cloudflare Pages / Vercel
+- 上传代码，设置环境变量，构建命令 `cd frontend && npm run build`，输出目录 `frontend/dist`
+
+方式二：Docker
+```bash
+cd frontend
+docker build \
+  --build-arg VITE_WALLETCONNECT_PROJECT_ID=... \
+  --build-arg VITE_SUPABASE_URL=... \
+  --build-arg VITE_SUPABASE_ANON_KEY=... \
+  -t earlywakeup:latest .
+docker run -p 3000:80 -d earlywakeup:latest
+```
