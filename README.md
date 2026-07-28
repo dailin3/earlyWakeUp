@@ -220,7 +220,7 @@ RainbowKit 需要 WalletConnect 项目 ID 才能提供移动端钱包扫码连�
 
 1. 访问 https://cloud.walletconnect.com/ 注册并创建项目
 2. 复制 Project ID
-3. 创建 `frontend/.env`：
+3. 本地开发可在 `frontend/.env` 覆盖 Supabase 的公开项目配置：
 
 ```bash
 VITE_WALLETCONNECT_PROJECT_ID=你的_project_id
@@ -305,8 +305,10 @@ create policy "Allow users to update own records" on public.donations
 ```env
 VITE_WALLETCONNECT_PROJECT_ID=YOUR_PROJECT_ID
 VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_ANON_KEY=your-anon-key
+VITE_SUPABASE_ANON_KEY=your-publishable-key
 ```
+
+生产构建默认使用 `dailin.tech` 共享的 Supabase 项目公开 URL 和 publishable key；仓库中不包含 service-role key、个人访问令牌或 SMTP 密钥。
 
 ### 部署
 

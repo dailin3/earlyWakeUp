@@ -1,7 +1,7 @@
 import { createBrowserClient } from '@supabase/ssr'
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || ''
-const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || ''
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://cmpccxkxrfauvpvjvyuk.supabase.co'
+const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_cEQ69SyLZmR9sKIvkzT5Sw_4TLcD7CI'
 
 // Use cookie-based auth to share session with login.dailin.tech
 // In production (*.dailin.tech), cookies are shared across subdomains
