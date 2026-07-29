@@ -27,6 +27,7 @@ import {
   ABI,
   CHAIN,
   CONTRACT_ADDRESS,
+  CONTRACT_DEPLOYMENT_BLOCK,
   formatEth,
   formatTimeLeft,
   formatTimestamp,
@@ -34,6 +35,7 @@ import {
   UTC8_OFFSET,
 } from './constants.ts'
 import Heatmap from './components/Heatmap.tsx'
+import { getBlockRanges } from './lib/blocks.ts'
 import DonateModal from './components/DonateModal.tsx'
 import MessageModal from './components/MessageModal.tsx'
 import { supabase, type DonationRecord } from './supabase.ts'
@@ -235,26 +237,23 @@ export default function App() {
     if (!publicClient) return
     async function load() {
       if (!publicClient) return
-      const [logsCheckIn, logsDonate, logsWithdraw] = await Promise.all([
-        publicClient.getLogs({
+      const latestBlock = await publicClient.getBlockNumber()
+      const ranges = getBlockRanges(CONTRACT_DEPLOYMENT_BLOCK, latestBlock, 10_000n)
+      const eventLogs = (await Promise.all(
+        ranges.map((range) => publicClient.getLogs({
           address: CONTRACT_ADDRESS,
-          event: parseAbiItem('event CheckedIn(uint256 indexed day, uint256 points, uint256 score)'),
-          fromBlock: 0n,
-          toBlock: 'latest',
-        }),
-        publicClient.getLogs({
-          address: CONTRACT_ADDRESS,
-          event: parseAbiItem('event Donated(address indexed donor, uint256 amount)'),
-          fromBlock: 0n,
-          toBlock: 'latest',
-        }),
-        publicClient.getLogs({
-          address: CONTRACT_ADDRESS,
-          event: parseAbiItem('event Withdrawn(address indexed owner, uint256 amount, uint256 score)'),
-          fromBlock: 0n,
-          toBlock: 'latest',
-        }),
-      ])
+          events: [
+            parseAbiItem('event CheckedIn(uint256 indexed day, uint256 points, uint256 score)'),
+            parseAbiItem('event Donated(address indexed donor, uint256 amount)'),
+            parseAbiItem('event Withdrawn(address indexed owner, uint256 amount, uint256 score)'),
+          ],
+          ...range,
+        })),
+      )).flat()
+
+      const logsCheckIn = eventLogs.filter((log) => log.eventName === 'CheckedIn')
+      const logsDonate = eventLogs.filter((log) => log.eventName === 'Donated')
+      const logsWithdraw = eventLogs.filter((log) => log.eventName === 'Withdrawn')
 
       const withTimestamp = async (
         logs: { blockNumber: bigint; transactionHash: `0x${string}` }[]

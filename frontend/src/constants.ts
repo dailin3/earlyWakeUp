@@ -2,6 +2,7 @@ import { type Abi, parseAbi } from 'viem'
 import { arbitrum } from 'wagmi/chains'
 
 export const CONTRACT_ADDRESS = '0xb0806037080B02B8d333fEb43c53F2F03522C4cF'
+export const CONTRACT_DEPLOYMENT_BLOCK = 488_673_659n
 
 export const CHAIN = arbitrum
 

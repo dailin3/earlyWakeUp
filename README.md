@@ -214,6 +214,14 @@ npm run dev
 
 打开 http://localhost:5173
 
+提交前可运行：
+
+```bash
+npm test
+npm run lint
+npm run build
+```
+
 ### 配置 WalletConnect Project ID
 
 RainbowKit 需要 WalletConnect 项目 ID 才能提供移动端钱包扫码连接。
@@ -247,8 +255,10 @@ Vercel 会自动识别 Vite 配置，构建命令为 `npm run build`，输出目
 - 一键 Check In（仅 owner 可用）
 - 一键 Withdraw（仅 owner 可用）
 - 输入 ETH 金额一键 Donate（任何人可用）
-- 最近 90 天签到热力图
+- 最近 90 天签到热力图（按北京时间 UTC+8、周一到周日排列）
 - 历史事件列表（CheckedIn / Donated / Withdrawn）
+
+链上事件从合约部署区块开始按 RPC 支持的区块范围分段读取，避免公共节点拒绝超大范围的 `eth_getLogs` 请求。
 
 ### 新增：Supabase 登录与感谢名单
 

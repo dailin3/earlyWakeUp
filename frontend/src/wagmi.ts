@@ -9,7 +9,7 @@ export const config = getDefaultConfig({
   projectId,
   chains: [arbitrum],
   transports: {
-    [arbitrum.id]: http('https://arbitrum-one-rpc.publicnode.com'),
+    [arbitrum.id]: http('https://arb1.arbitrum.io/rpc'),
   },
   ssr: false,
 })

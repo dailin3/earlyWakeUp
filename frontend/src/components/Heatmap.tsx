@@ -1,4 +1,4 @@
-import { toUtc8Date } from '../constants.ts'
+import { buildHeatmapWeeks, heatmapLevel } from '../lib/heatmap.ts'
 
 interface CheckIn {
   day: bigint
@@ -8,54 +8,44 @@ interface CheckIn {
 }
 
 export default function Heatmap({ events }: { events: CheckIn[] }) {
-  const today = new Date()
-  const days = Array.from({ length: 90 }, (_, i) => {
-    const d = new Date(today)
-    d.setDate(today.getDate() - (89 - i))
-    d.setHours(0, 0, 0, 0)
-    return d
-  })
-
-  const byDay = new Map<string, bigint>()
-  for (const e of events) {
-    const date = toUtc8Date(e.day * 86400n - BigInt(8 * 60 * 60))
-    const key = date.toISOString().split('T')[0]
-    byDay.set(key, (byDay.get(key) ?? 0n) + e.points)
-  }
-
-  const weeks: Date[][] = []
-  for (let i = 0; i < days.length; i += 7) {
-    weeks.push(days.slice(i, i + 7))
-  }
-
-  const level = (date: Date) => {
-    const key = date.toISOString().split('T')[0]
-    const points = byDay.get(key)
-    if (!points) return 'bg-slate-200 dark:bg-slate-800'
-    if (points >= 100n) return 'bg-emerald-500'
-    if (points >= 80n) return 'bg-emerald-400'
-    if (points >= 60n) return 'bg-emerald-300'
-    if (points >= 40n) return 'bg-emerald-200'
-    return 'bg-emerald-100'
-  }
+  const weeks = buildHeatmapWeeks(Date.now(), events)
+  const colors = [
+    'bg-slate-200 dark:bg-slate-800',
+    'bg-emerald-100',
+    'bg-emerald-200',
+    'bg-emerald-300',
+    'bg-emerald-400',
+    'bg-emerald-500',
+  ]
 
   return (
-    <div className="space-y-2">
-      <h3 className="text-sm font-medium text-slate-600 dark:text-slate-400">最近 90 天签到</h3>
-      <div className="flex gap-1 overflow-x-auto pb-2">
-        {weeks.map((week, wi) => (
-          <div key={wi} className="flex flex-col gap-1">
-            {week.map((d, di) => (
-              <div
-                key={di}
-                title={d.toLocaleDateString('zh-CN')}
-                className={`w-3 h-3 rounded-sm ${level(d)}`}
-              />
+    <div className="space-y-3">
+      <div className="overflow-x-auto pb-1">
+        <div className="flex min-w-max gap-2">
+          <div className="grid grid-rows-7 gap-1 pt-0 text-[10px] leading-3 text-slate-400" aria-hidden="true">
+            <span>一</span><span /> <span>三</span><span /> <span>五</span><span /> <span>日</span>
+          </div>
+          <div className="flex gap-1" role="grid" aria-label="最近 90 天签到记录，按北京时间显示">
+            {weeks.map((week, weekIndex) => (
+              <div key={weekIndex} className="grid grid-rows-7 gap-1">
+                {week.map((cell, dayIndex) => cell ? (
+                  <div
+                    key={cell.dateKey}
+                    role="gridcell"
+                    aria-label={`${cell.dateKey}，${cell.points} 分`}
+                    title={`${cell.dateKey} · ${cell.points} 分`}
+                    className={`h-3 w-3 rounded-sm ${colors[heatmapLevel(cell.points)]}`}
+                  />
+                ) : (
+                  <div key={`empty-${dayIndex}`} className="h-3 w-3" aria-hidden="true" />
+                ))}
+              </div>
             ))}
           </div>
-        ))}
+        </div>
       </div>
       <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+        <span className="mr-auto">北京时间（UTC+8）</span>
         <span>少</span>
         <div className="w-3 h-3 rounded-sm bg-slate-200 dark:bg-slate-800" />
         <div className="w-3 h-3 rounded-sm bg-emerald-100" />
