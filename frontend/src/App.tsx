@@ -36,6 +36,7 @@ import {
 } from './constants.ts'
 import Heatmap from './components/Heatmap.tsx'
 import { getBlockRanges } from './lib/blocks.ts'
+import { getSessionBridgeUrl } from './lib/auth-navigation.ts'
 import { persistDonationWithMessage, type DonationInsert, type PendingDonation } from './lib/donation-records.ts'
 import DonateModal from './components/DonateModal.tsx'
 import MessageModal from './components/MessageModal.tsx'
@@ -388,7 +389,7 @@ export default function App() {
 
 
   const isLocalDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-  const getLoginUrl = () => `https://login.dailin.tech/auth/login?next=${encodeURIComponent(window.location.href)}`
+  const getLoginUrl = () => getSessionBridgeUrl(window.location.href)
 
   const handleLoginClick = () => {
     if (isLocalDev) {
@@ -610,11 +611,13 @@ export default function App() {
                       {new Date(r.created_at).toLocaleDateString('zh-CN')}
                     </span>
                   </div>
-                  {r.message && (
+                  {r.message ? (
                     <p className="mt-2 flex items-start gap-1.5 text-sm text-slate-600 dark:text-slate-300">
                       <MessageCircle size={14} className="mt-0.5 shrink-0" />
                       {r.message}
                     </p>
+                  ) : (
+                    <p className="mt-2 text-xs text-slate-400">未留言</p>
                   )}
                 </div>
               ))}

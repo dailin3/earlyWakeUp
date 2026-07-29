@@ -310,9 +310,10 @@ create policy "Allow users to update own records" on public.donations
   for update using (auth.uid() = donor_user_id);
 ```
 
-2. 登录由 `login.dailin.tech` 统一处理。两个应用必须使用同一个 Supabase 项目，并在生产环境通过 `.dailin.tech` Cookie 共享会话。EarlyWakeUp 使用 `auth.getUser()` 向 Supabase 验证 Cookie 中的 JWT 后才显示用户名；登录链接通过受限的 `next` 参数返回本站。
+2. 登录由 `login.dailin.tech` 统一处理。两个应用必须使用同一个 Supabase 项目，并在生产环境通过 `.dailin.tech` Cookie 共享会话。EarlyWakeUp 使用 `auth.getUser()` 向 Supabase 验证 Cookie 中的 JWT 后才显示用户名；Login 先经过 `/auth/bridge` 将登录域已有会话刷新为跨子域 Cookie，再通过受限的 `next` 参数返回本站。
+3. 匿名捐赠和留言在用户提交留言后一次性写入 `donations`。历史记录若显示“未留言”，表示旧流程没有把留言成功写入数据库，页面不会伪造或从链上推测留言内容。
 
-3. 创建 `frontend/.env`：
+4. 创建 `frontend/.env`：
 
 ```env
 VITE_WALLETCONNECT_PROJECT_ID=YOUR_PROJECT_ID
