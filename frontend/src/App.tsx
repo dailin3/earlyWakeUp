@@ -36,6 +36,7 @@ import {
 } from './constants.ts'
 import Heatmap from './components/Heatmap.tsx'
 import { getBlockRanges } from './lib/blocks.ts'
+import { persistDonationWithMessage, type DonationInsert, type PendingDonation } from './lib/donation-records.ts'
 import DonateModal from './components/DonateModal.tsx'
 import MessageModal from './components/MessageModal.tsx'
 import { supabase, type DonationRecord } from './supabase.ts'
@@ -58,16 +59,6 @@ interface WithdrawEvent {
   amount: bigint
   score: bigint
   timestamp: number
-}
-
-interface PendingDonation {
-  txHash: string
-  amount: string
-  wallet: string
-  name: string | null
-  isAnonymous: boolean
-  userId: string | null
-  userEmail: string | null
 }
 
 interface SupabaseUser {
@@ -99,10 +90,13 @@ export default function App() {
   const [withdrawals, setWithdrawals] = useState<WithdrawEvent[]>([])
   const [donationRecords, setDonationRecords] = useState<DonationRecord[]>([])
   const [supabaseUser, setSupabaseUser] = useState<SupabaseUser | null>(null)
+  const [authLoading, setAuthLoading] = useState(true)
   const [showDonateModal, setShowDonateModal] = useState(false)
   const [showMessageModal, setShowMessageModal] = useState(false)
   const [pendingDonation, setPendingDonation] = useState<PendingDonation | null>(null)
   const [justDonated, setJustDonated] = useState(false)
+  const [donationError, setDonationError] = useState<string | null>(null)
+  const [isSavingDonation, setIsSavingDonation] = useState(false)
   const publicClient = usePublicClient({ chainId })
 
   const { data: ownerRaw } = useReadContract({
@@ -174,7 +168,7 @@ export default function App() {
 
   const isOwner = address && owner ? address.toLowerCase() === owner.toLowerCase() : false
 
-  const now = useMemo(() => Math.floor(Date.now() / 1000), [txHash, isPending, justDonated])
+  const now = Math.floor(Date.now() / 1000)
   const cooldownEnd = cooldownStart && cooldown ? Number(cooldownStart) + Number(cooldown) : 0
   const timeLeft = Math.max(0, cooldownEnd - now)
   const progress = target && score && target > 0n ? Math.min(100, (Number(score) / Number(target)) * 100) : 0
@@ -185,10 +179,9 @@ export default function App() {
 
     const init = async () => {
       if (!supabase) return
-      const { data } = await supabase.auth.getSession()
-      if (data.session?.user) {
-        setSupabaseUser(toSupabaseUser(data.session.user))
-      }
+      const { data, error } = await supabase.auth.getUser()
+      setSupabaseUser(!error && data.user ? toSupabaseUser(data.user) : null)
+      setAuthLoading(false)
 
       // Handle OAuth callback on load
       const params = new URLSearchParams(window.location.search)
@@ -200,16 +193,16 @@ export default function App() {
           const { data, error } = await supabase.auth.exchangeCodeForSession(code)
           if (!error && data.session?.user) {
             const user = data.session.user
-            await saveDonation({
+            const completedDonation = {
               ...pending,
               userId: user.id,
               userEmail: user.email || null,
               name: pending.name || user.user_metadata?.full_name || user.user_metadata?.name || user.email || null,
               isAnonymous: false,
-            })
+            }
             localStorage.removeItem('earlywakeup_pending_donation')
             setSupabaseUser(toSupabaseUser(user))
-            setPendingDonation({ ...pending, userId: user.id, userEmail: user.email || null, isAnonymous: false })
+            setPendingDonation(completedDonation)
             setShowMessageModal(true)
           }
           // Clean URL
@@ -308,24 +301,10 @@ export default function App() {
     loadRecords()
   }, [txHash, justDonated])
 
-  const saveDonation = async (donation: PendingDonation & { message?: string | null }) => {
-    if (!supabase) return
-    await supabase.from('donations').upsert(
-      {
-        chain: 'arbitrum',
-        contract_address: CONTRACT_ADDRESS.toLowerCase(),
-        donor_wallet: donation.wallet.toLowerCase(),
-        donor_user_id: donation.userId,
-        donor_email: donation.userEmail,
-        donor_name: donation.name,
-        amount_eth: Number(donation.amount),
-        tx_hash: donation.txHash.toLowerCase(),
-        message: donation.message || null,
-        is_anonymous: donation.isAnonymous,
-        confirmed: true,
-      },
-      { onConflict: 'tx_hash' }
-    )
+  const insertDonation = async (record: DonationInsert) => {
+    if (!supabase) throw new Error('感谢名单服务暂时不可用')
+    const { error } = await supabase.from('donations').insert(record)
+    if (error) throw error
   }
 
   const handleCheckIn = () => {
@@ -401,7 +380,6 @@ export default function App() {
       return
     }
 
-    await saveDonation(donation)
     setPendingDonation(donation)
     setShowDonateModal(false)
     setShowMessageModal(true)
@@ -410,7 +388,7 @@ export default function App() {
 
 
   const isLocalDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-  const LOGIN_URL = isLocalDev ? '' : 'https://login.dailin.tech/auth/login'
+  const getLoginUrl = () => `https://login.dailin.tech/auth/login?next=${encodeURIComponent(window.location.href)}`
 
   const handleLoginClick = () => {
     if (isLocalDev) {
@@ -421,7 +399,7 @@ export default function App() {
       })
     } else {
       // 生产环境：跳转到 login.dailin.tech，登录后 cookie 共享到 .dailin.tech
-      window.location.href = LOGIN_URL
+      window.location.href = getLoginUrl()
     }
   }
 
@@ -436,16 +414,24 @@ export default function App() {
         options: { redirectTo: window.location.origin },
       })
     } else {
-      window.location.href = LOGIN_URL
+      window.location.href = getLoginUrl()
     }
   }
 
   const handleMessageSubmit = async (message: string) => {
     if (!pendingDonation) return
-    await saveDonation({ ...pendingDonation, message: message || null })
-    setShowMessageModal(false)
-    setPendingDonation(null)
-    setJustDonated((v) => !v)
+    setIsSavingDonation(true)
+    setDonationError(null)
+    try {
+      await persistDonationWithMessage(pendingDonation, message, insertDonation)
+      setShowMessageModal(false)
+      setPendingDonation(null)
+      setJustDonated((v) => !v)
+    } catch (error) {
+      setDonationError(error instanceof Error ? error.message : '留言保存失败，请重试')
+    } finally {
+      setIsSavingDonation(false)
+    }
   }
 
   const handleSupabaseLogout = async () => {
@@ -455,8 +441,7 @@ export default function App() {
   }
 
   const currentWindow = useMemo(() => {
-    const nowTs = Math.floor(Date.now() / 1000)
-    const sec = (nowTs + UTC8_OFFSET) % 86400
+    const sec = (now + UTC8_OFFSET) % 86400
     if (sec >= 19800 && sec < 23400) return { label: '100 分', color: 'text-emerald-600' }
     if (sec >= 23400 && sec < 25200) return { label: '80 分', color: 'text-emerald-500' }
     if (sec >= 25200 && sec < 27000) return { label: '60 分', color: 'text-emerald-400' }
@@ -488,7 +473,7 @@ export default function App() {
                 <button onClick={handleSupabaseLogout} className="text-indigo-600 hover:underline">退出</button>
               </div>
             )}
-            {!supabaseUser && (
+            {!supabaseUser && !authLoading && (
               <button onClick={handleLoginClick} className="flex items-center gap-1.5 rounded-lg bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:text-indigo-300 dark:hover:bg-indigo-950">
                 <LogIn size={14} /> Login
               </button>
@@ -700,11 +685,10 @@ export default function App() {
       />
       <MessageModal
         isOpen={showMessageModal}
-        onClose={() => {
-          setShowMessageModal(false)
-          setPendingDonation(null)
-        }}
+        onClose={() => handleMessageSubmit('')}
         onSubmit={handleMessageSubmit}
+        error={donationError}
+        isSaving={isSavingDonation}
       />
     </div>
   )

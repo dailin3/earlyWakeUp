@@ -271,7 +271,7 @@ Vercel 会自动识别 Vite 配置，构建命令为 `npm run build`，输出目
   - 匿名捐赠：可填写昵称
   - 登录留名：跳转到 `login.dailin.tech` 统一登录，并自动显示 OAuth 用户名或邮箱
   - 完全匿名：不留任何信息
-- **捐赠后留言**：可以留一句话给 owner，显示在感谢名单里
+- **捐赠后留言**：可以留一句话给 owner，显示在感谢名单里；捐赠资料和留言一次写入，避免匿名记录被 RLS 阻止更新
 - **感谢名单**：页面底部展示最近 50 条捐赠记录，包括昵称、钱包地址、金额、留言
 
 ### 需要的 Supabase 配置
@@ -310,7 +310,7 @@ create policy "Allow users to update own records" on public.donations
   for update using (auth.uid() = donor_user_id);
 ```
 
-2. 登录由 `login.dailin.tech` 统一处理。两个应用必须使用同一个 Supabase 项目，并在生产环境通过 `.dailin.tech` Cookie 共享会话。
+2. 登录由 `login.dailin.tech` 统一处理。两个应用必须使用同一个 Supabase 项目，并在生产环境通过 `.dailin.tech` Cookie 共享会话。EarlyWakeUp 使用 `auth.getUser()` 向 Supabase 验证 Cookie 中的 JWT 后才显示用户名；登录链接通过受限的 `next` 参数返回本站。
 
 3. 创建 `frontend/.env`：
 
