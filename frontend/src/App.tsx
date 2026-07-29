@@ -6,9 +6,8 @@ import {
   usePublicClient,
   useReadContract,
   useWriteContract,
-  useWaitForTransactionReceipt,
 } from 'wagmi'
-import { parseAbiItem, parseEther } from 'viem'
+import { parseAbiItem } from 'viem'
 import {
   AlarmClock,
   Award,
@@ -37,7 +36,16 @@ import {
 import Heatmap from './components/Heatmap.tsx'
 import { getBlockRanges } from './lib/blocks.ts'
 import { getSessionBridgeUrl } from './lib/auth-navigation.ts'
-import { persistDonationWithMessage, type DonationInsert, type PendingDonation } from './lib/donation-records.ts'
+import {
+  mergeDonationRecords,
+  parsePositiveDonationAmount,
+  persistDonationWithMessage,
+  readConfirmedDonation,
+  restorePendingDonationForUser,
+  type ChainDonation,
+  type DonationInsert,
+  type PendingDonation,
+} from './lib/donation-records.ts'
 import DonateModal from './components/DonateModal.tsx'
 import MessageModal from './components/MessageModal.tsx'
 import { supabase, type DonationRecord } from './supabase.ts'
@@ -46,12 +54,6 @@ interface CheckInEvent {
   day: bigint
   points: bigint
   score: bigint
-  timestamp: number
-}
-
-interface DonateEvent {
-  donor: `0x${string}`
-  amount: bigint
   timestamp: number
 }
 
@@ -87,7 +89,7 @@ export default function App() {
   const chainId = CHAIN.id
   const [donateAmount, setDonateAmount] = useState('0.001')
   const [checkIns, setCheckIns] = useState<CheckInEvent[]>([])
-  const [donations, setDonations] = useState<DonateEvent[]>([])
+  const [donations, setDonations] = useState<ChainDonation[]>([])
   const [withdrawals, setWithdrawals] = useState<WithdrawEvent[]>([])
   const [donationRecords, setDonationRecords] = useState<DonationRecord[]>([])
   const [supabaseUser, setSupabaseUser] = useState<SupabaseUser | null>(null)
@@ -98,6 +100,7 @@ export default function App() {
   const [justDonated, setJustDonated] = useState(false)
   const [donationError, setDonationError] = useState<string | null>(null)
   const [isSavingDonation, setIsSavingDonation] = useState(false)
+  const [isDonating, setIsDonating] = useState(false)
   const publicClient = usePublicClient({ chainId })
 
   const { data: ownerRaw } = useReadContract({
@@ -162,10 +165,6 @@ export default function App() {
   })
 
   const { writeContractAsync: write, isPending, data: txHash } = useWriteContract()
-  const { isSuccess: txSuccess } = useWaitForTransactionReceipt({
-    hash: txHash,
-    chainId,
-  })
 
   const isOwner = address && owner ? address.toLowerCase() === owner.toLowerCase() : false
 
@@ -181,33 +180,34 @@ export default function App() {
     const init = async () => {
       if (!supabase) return
       const { data, error } = await supabase.auth.getUser()
-      setSupabaseUser(!error && data.user ? toSupabaseUser(data.user) : null)
-      setAuthLoading(false)
+      let authenticatedUser = !error ? data.user : null
 
-      // Handle OAuth callback on load
+      // Local OAuth returns a code; the production login bridge returns with
+      // an already-shared session cookie and no code.
       const params = new URLSearchParams(window.location.search)
       const code = params.get('code')
       if (code) {
-        const stored = localStorage.getItem('earlywakeup_pending_donation')
-        if (stored) {
+        const exchange = await supabase.auth.exchangeCodeForSession(code)
+        if (!exchange.error && exchange.data.session?.user) {
+          authenticatedUser = exchange.data.session.user
+        }
+        window.history.replaceState({}, document.title, window.location.pathname)
+      }
+
+      const appUser = authenticatedUser ? toSupabaseUser(authenticatedUser) : null
+      setSupabaseUser(appUser)
+      setAuthLoading(false)
+
+      const stored = localStorage.getItem('earlywakeup_pending_donation')
+      if (stored && appUser) {
+        try {
           const pending: PendingDonation = JSON.parse(stored)
-          const { data, error } = await supabase.auth.exchangeCodeForSession(code)
-          if (!error && data.session?.user) {
-            const user = data.session.user
-            const completedDonation = {
-              ...pending,
-              userId: user.id,
-              userEmail: user.email || null,
-              name: pending.name || user.user_metadata?.full_name || user.user_metadata?.name || user.email || null,
-              isAnonymous: false,
-            }
-            localStorage.removeItem('earlywakeup_pending_donation')
-            setSupabaseUser(toSupabaseUser(user))
-            setPendingDonation(completedDonation)
-            setShowMessageModal(true)
-          }
-          // Clean URL
-          window.history.replaceState({}, document.title, window.location.pathname)
+          const completedDonation = restorePendingDonationForUser(pending, appUser)
+          localStorage.removeItem('earlywakeup_pending_donation')
+          setPendingDonation(completedDonation)
+          setShowMessageModal(true)
+        } catch {
+          localStorage.removeItem('earlywakeup_pending_donation')
         }
       }
     }
@@ -266,7 +266,8 @@ export default function App() {
       }))
 
       const dn = (await withTimestamp(logsDonate)).map((l) => ({
-        ...(l as unknown as { args: DonateEvent }).args,
+        ...(l as unknown as { args: { donor: `0x${string}`; amount: bigint } }).args,
+        txHash: l.transactionHash,
         timestamp: l.timestamp,
       }))
 
@@ -302,6 +303,11 @@ export default function App() {
     loadRecords()
   }, [txHash, justDonated])
 
+  const displayDonations = useMemo(
+    () => mergeDonationRecords(donations, donationRecords),
+    [donations, donationRecords],
+  )
+
   const insertDonation = async (record: DonationInsert) => {
     if (!supabase) throw new Error('感谢名单服务暂时不可用')
     const { error } = await supabase.from('donations').insert(record)
@@ -327,19 +333,26 @@ export default function App() {
   }
 
   const handleDonate = async () => {
-    if (!isConnected || !address) return
-    const hash = await write({
-      address: CONTRACT_ADDRESS,
-      abi: ABI,
-      functionName: 'donate',
-      chainId,
-      value: parseEther(donateAmount),
-    })
-    if (hash) {
+    if (!isConnected || !address || !publicClient) return
+    setDonationError(null)
+    setIsDonating(true)
+    try {
+      const amount = parsePositiveDonationAmount(donateAmount)
+      const hash = await write({
+        address: CONTRACT_ADDRESS,
+        abi: ABI,
+        functionName: 'donate',
+        chainId,
+        value: amount,
+      })
+      const receipt = await publicClient.waitForTransactionReceipt({ hash })
+      const confirmed = readConfirmedDonation(receipt, CONTRACT_ADDRESS)
+      const block = await publicClient.getBlock({ blockNumber: receipt.blockNumber })
       const pending: PendingDonation = {
-        txHash: hash,
-        amount: donateAmount,
-        wallet: address,
+        txHash: confirmed.txHash,
+        amountWei: confirmed.amount.toString(),
+        wallet: confirmed.donor,
+        timestamp: Number(block.timestamp),
         name: null,
         isAnonymous: true,
         userId: null,
@@ -347,16 +360,13 @@ export default function App() {
       }
       setPendingDonation(pending)
       setShowDonateModal(true)
+      setJustDonated((value) => !value)
+    } catch (error) {
+      setDonationError(error instanceof Error ? error.message : '捐赠交易失败，请重试')
+    } finally {
+      setIsDonating(false)
     }
   }
-
-  // When on-chain donate transaction succeeds, we can optionally do something.
-  // The modal is already open from handleDonate.
-  useEffect(() => {
-    if (txSuccess && pendingDonation && !justDonated) {
-      setJustDonated(true)
-    }
-  }, [txSuccess, pendingDonation, justDonated])
 
   const handleDonateChoice = async (isAnonymous: boolean, name: string | null) => {
     if (!pendingDonation) return
@@ -530,19 +540,22 @@ export default function App() {
               <input
                 type="number"
                 step="0.0001"
-                min="0"
+                min="0.000000000000000001"
                 value={donateAmount}
                 onChange={(e) => setDonateAmount(e.target.value)}
                 className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-indigo-500 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
               />
               <button
                 onClick={handleDonate}
-                disabled={!isConnected || isPending}
+                disabled={!isConnected || isPending || isDonating}
                 className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
               >
-                {isPending ? '…' : 'Donate'}
+                {isDonating ? 'Confirming…' : isPending ? '…' : 'Donate'}
               </button>
             </div>
+            {donationError && !showMessageModal && (
+              <p className="mt-2 text-xs text-red-600 dark:text-red-400">{donationError}</p>
+            )}
             <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">任何人都可以向奖池存入 ETH，并登上感谢名单。</p>
           </div>
 
@@ -584,13 +597,13 @@ export default function App() {
           <h3 className="mb-3 flex items-center gap-2 text-sm font-medium text-slate-600 dark:text-slate-400">
             <MessageCircle size={16} /> 感谢名单
           </h3>
-          {donationRecords.length === 0 ? (
+          {displayDonations.length === 0 ? (
             <p className="text-sm text-slate-400">还没有捐赠记录，成为第一个支持者吧！</p>
           ) : (
             <div className="space-y-3">
-              {donationRecords.map((r) => (
+              {displayDonations.map((r) => (
                 <div
-                  key={r.id}
+                  key={r.txHash}
                   className="rounded-lg border border-slate-100 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-800/50"
                 >
                   <div className="flex items-start justify-between gap-2">
@@ -600,15 +613,15 @@ export default function App() {
                       </div>
                       <div>
                         <p className="text-sm font-medium text-slate-900 dark:text-white">
-                          {r.is_anonymous ? (r.donor_name || '匿名') : (r.donor_name || r.donor_email || 'Guest')}
+                          {r.isAnonymous ? (r.name || '匿名') : (r.name || r.email || 'Guest')}
                         </p>
                         <p className="text-xs text-slate-500 dark:text-slate-400">
-                          {r.donor_wallet.slice(0, 6)}…{r.donor_wallet.slice(-4)} · {Number(r.amount_eth).toFixed(6)} ETH
+                          {r.donor.slice(0, 6)}…{r.donor.slice(-4)} · {formatEth(r.amount)} ETH
                         </p>
                       </div>
                     </div>
                     <span className="text-xs text-slate-400">
-                      {new Date(r.created_at).toLocaleDateString('zh-CN')}
+                      {formatDate(r.timestamp)}
                     </span>
                   </div>
                   {r.message ? (

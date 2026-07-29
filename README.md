@@ -267,12 +267,14 @@ Vercel 会自动识别 Vite 配置，构建命令为 `npm run build`，输出目
 2026-07-29 更新：前端增加了 Supabase 登录和捐赠感谢名单功能。
 
 - **不强制登录**：任何人都可以直接 donate ETH 到合约
-- **捐赠后留名**：donate 交易发出后，会弹窗询问是否愿意登录留名
+- **捐赠后留名**：donate 交易确认且收据包含本合约的 `Donated` Event 后，才会弹窗询问是否愿意登录留名
   - 匿名捐赠：可填写昵称
   - 登录留名：跳转到 `login.dailin.tech` 统一登录，并自动显示 OAuth 用户名或邮箱
   - 完全匿名：不留任何信息
 - **捐赠后留言**：可以留一句话给 owner，显示在感谢名单里；捐赠资料和留言一次写入，避免匿名记录被 RLS 阻止更新
-- **感谢名单**：页面底部展示最近 50 条捐赠记录，包括昵称、钱包地址、金额、留言
+- **感谢名单**：页面底部展示链上已确认的捐赠，并按 `tx_hash` 关联 Supabase 中的昵称、登录身份和留言。金额、钱包和时间始终来自链上 Event
+
+前端拒绝 `0 ETH` 捐赠。当前已部署合约本身仍允许第三方直接调用 `donate{value: 0}()`，因此历史上已经产生的零金额 Event 会如实保留；若要在链上彻底禁止，需要升级并重新部署合约。
 
 ### 需要的 Supabase 配置
 
@@ -311,7 +313,7 @@ create policy "Allow users to update own records" on public.donations
 ```
 
 2. 登录由 `login.dailin.tech` 统一处理。两个应用必须使用同一个 Supabase 项目，并在生产环境通过 `.dailin.tech` Cookie 共享会话。EarlyWakeUp 使用 `auth.getUser()` 向 Supabase 验证 Cookie 中的 JWT 后才显示用户名；Login 先经过 `/auth/bridge` 将登录域已有会话刷新为跨子域 Cookie，再通过受限的 `next` 参数返回本站。
-3. 匿名捐赠和留言在用户提交留言后一次性写入 `donations`。历史记录若显示“未留言”，表示旧流程没有把留言成功写入数据库，页面不会伪造或从链上推测留言内容。
+3. 匿名捐赠和留言在用户提交留言后一次性写入 `donations`。生产环境登录经 Session Bridge 返回后没有 OAuth `code`，前端会通过已验证的共享 Session 恢复已确认的待处理捐赠并继续留言流程。历史记录若显示“未留言”，表示旧流程没有把留言成功写入数据库，页面不会伪造或从链上推测留言内容。
 
 4. 创建 `frontend/.env`：
 
