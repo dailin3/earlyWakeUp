@@ -50,12 +50,6 @@ export function formatPercent(score: bigint | undefined, target: bigint | undefi
   return ((Number(score) / Number(target)) * 100).toFixed(1)
 }
 
-export function toUtc8Date(timestamp: bigint | number) {
-  const ts = Number(timestamp) + UTC8_OFFSET
-  const days = Math.floor(ts / 86400)
-  return new Date((days * 86400 - UTC8_OFFSET) * 1000)
-}
-
 export function formatTimeLeft(seconds: bigint | number) {
   const s = Math.max(0, Number(seconds))
   const d = Math.floor(s / 86400)
@@ -67,12 +61,17 @@ export function formatTimeLeft(seconds: bigint | number) {
 }
 
 export function formatTimestamp(timestamp: bigint | number) {
-  const date = toUtc8Date(timestamp)
-  return date.toLocaleString('zh-CN', {
+  return new Date(Number(timestamp) * 1000).toLocaleString('zh-CN', {
     timeZone: 'Asia/Shanghai',
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+  })
+}
+
+export function formatDate(timestamp: bigint | number) {
+  return new Date(Number(timestamp) * 1000).toLocaleDateString('zh-CN', {
+    timeZone: 'Asia/Shanghai',
   })
 }

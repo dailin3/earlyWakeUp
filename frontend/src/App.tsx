@@ -28,10 +28,10 @@ import {
   CHAIN,
   CONTRACT_ADDRESS,
   CONTRACT_DEPLOYMENT_BLOCK,
+  formatDate,
   formatEth,
   formatTimeLeft,
   formatTimestamp,
-  toUtc8Date,
   UTC8_OFFSET,
 } from './constants.ts'
 import Heatmap from './components/Heatmap.tsx'
@@ -656,7 +656,7 @@ export default function App() {
                     >
                       <span className="text-slate-600 dark:text-slate-400">签到 +{e.points.toString()} 分</span>
                       <span className="text-xs text-slate-400">
-                        {toUtc8Date(e.timestamp).toLocaleDateString('zh-CN')}
+                        {formatDate(e.timestamp)}
                       </span>
                     </div>
                   )
@@ -669,7 +669,7 @@ export default function App() {
                     >
                       <span className="text-indigo-700 dark:text-indigo-300">Donate {formatEth(e.amount)} ETH</span>
                       <span className="text-xs text-slate-400">
-                        {toUtc8Date(e.timestamp).toLocaleDateString('zh-CN')}
+                        {formatDate(e.timestamp)}
                       </span>
                     </div>
                   )
@@ -681,7 +681,7 @@ export default function App() {
                   >
                     <span className="text-emerald-700 dark:text-emerald-300">Withdraw {formatEth(e.amount)} ETH</span>
                     <span className="text-xs text-slate-400">
-                      {toUtc8Date(e.timestamp).toLocaleDateString('zh-CN')}
+                      {formatDate(e.timestamp)}
                     </span>
                   </div>
                 )
